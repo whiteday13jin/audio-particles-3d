@@ -1,0 +1,1268 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>3D 音频粒子反馈</title>
+  <style>
+    :root {
+      --panel-bg: rgba(7, 10, 20, 0.7);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --text: #e5eefc;
+      --muted: #9fb2d9;
+      --accent: #7dd3fc;
+      --accent-2: #c084fc;
+      --danger: #fb7185;
+      --ok: #34d399;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 35%),
+        radial-gradient(circle at 80% 25%, rgba(168, 85, 247, 0.18), transparent 28%),
+        radial-gradient(circle at 50% 80%, rgba(59, 130, 246, 0.12), transparent 32%),
+        #020617;
+      color: var(--text);
+      overscroll-behavior: none;
+    }
+
+    body {
+      min-height: 100dvh;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hud {
+      position: fixed;
+      left: max(16px, calc(var(--safe-left) + 12px));
+      top: max(16px, calc(var(--safe-top) + 12px));
+      width: min(430px, calc(100vw - 32px - var(--safe-left) - var(--safe-right)));
+      max-height: calc(100dvh - 32px - var(--safe-top) - var(--safe-bottom));
+      padding: 16px 16px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--panel-border);
+      background: var(--panel-bg);
+      backdrop-filter: blur(16px);
+      box-shadow: var(--shadow);
+      z-index: 6;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    .hud-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      margin: 0;
+    }
+
+    .title-badge {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 0 18px rgba(125, 211, 252, 0.75);
+      flex: none;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .hud-toggle {
+      display: none;
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      flex: none;
+      white-space: nowrap;
+    }
+
+    .hud-quick {
+      display: none;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: -2px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .hud-quick strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .hud-body {
+      overflow: auto;
+      padding-right: 4px;
+      margin-right: -4px;
+      min-height: 0;
+    }
+
+    .hud-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .hud-body::-webkit-scrollbar-thumb {
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .subtitle {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 11px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+      transform: none;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, rgba(14, 165, 233, 0.35), rgba(96, 165, 250, 0.22));
+      border-color: rgba(125, 211, 252, 0.3);
+    }
+
+    button.secondary {
+      background: linear-gradient(135deg, rgba(168, 85, 247, 0.22), rgba(59, 130, 246, 0.18));
+      border-color: rgba(196, 181, 253, 0.24);
+    }
+
+    button.ghost {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .rows {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .row-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #7dd3fc;
+      cursor: pointer;
+    }
+
+    .meter-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .meter-card {
+      padding: 10px 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .meter-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .meter-track {
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .meter-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, rgba(34, 197, 94, 0.85), rgba(59, 130, 246, 0.9), rgba(168, 85, 247, 0.92));
+      box-shadow: 0 0 18px rgba(96, 165, 250, 0.38);
+      transition: width 0.08s linear;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .pill {
+      padding: 8px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .status {
+      margin-top: 12px;
+      min-height: 20px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .status.ok { color: #a7f3d0; }
+    .status.error { color: #fecdd3; }
+
+    .tips-details {
+      display: none;
+      margin-top: 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .tips-details summary {
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 700;
+      list-style: none;
+    }
+
+    .tips-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tips-details .tips-content {
+      margin-top: 8px;
+    }
+
+    .corner {
+      position: fixed;
+      right: max(20px, calc(var(--safe-right) + 12px));
+      bottom: max(20px, calc(var(--safe-bottom) + 12px));
+      max-width: min(420px, calc(100vw - 40px - var(--safe-left) - var(--safe-right)));
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: rgba(7, 10, 20, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      z-index: 5;
+    }
+
+    .corner code,
+    .tips-details code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      color: #dbeafe;
+      font-size: 11px;
+    }
+
+    .mobile-note {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(14, 165, 233, 0.08);
+      border: 1px solid rgba(125, 211, 252, 0.18);
+      color: #cfe9ff;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    @media (pointer: coarse) {
+      button:hover {
+        transform: none;
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .hud {
+        left: 12px;
+        right: 12px;
+        top: auto;
+        bottom: calc(var(--safe-bottom) + 12px);
+        width: auto;
+        max-height: calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom));
+        padding: 14px;
+        border-radius: 18px;
+      }
+
+      .hud-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .hud-quick {
+        display: flex;
+      }
+
+      .hud-body {
+        max-height: min(58dvh, 470px);
+      }
+
+      .hud.compact .hud-body {
+        display: none;
+      }
+
+      .controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .controls button:last-child {
+        grid-column: 1 / -1;
+      }
+
+      .meter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .meta {
+        gap: 6px;
+      }
+
+      .pill {
+        padding: 7px 9px;
+        font-size: 11px;
+      }
+
+      .subtitle {
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+
+      .corner {
+        display: none;
+      }
+
+      .tips-details,
+      .mobile-note {
+        display: block;
+      }
+    }
+
+    @media (max-width: 480px) {
+      h1 {
+        font-size: 16px;
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      .controls button:last-child {
+        grid-column: auto;
+      }
+
+      .meter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <section class="hud" id="hud">
+    <div class="hud-head">
+      <div class="title">
+        <div class="title-badge"></div>
+        <h1>3D 音频粒子反馈</h1>
+      </div>
+      <button id="toggleHud" class="hud-toggle" type="button" aria-expanded="true" aria-controls="hudBody">收起</button>
+    </div>
+
+    <div class="hud-quick">
+      <span>输入：<strong id="sourceLabelQuick">未连接</strong></span>
+      <span>状态：<strong id="audioStateQuick">idle</strong></span>
+    </div>
+
+    <div id="hudBody" class="hud-body">
+      <p class="subtitle">
+        支持两种输入：麦克风，或共享标签页/屏幕的音频。响度驱动整体脉冲，低中高频分别驱动扩散、扭转和闪烁。
+      </p>
+
+      <div id="mobileNote" class="mobile-note">
+        移动端已切到紧凑布局，并降低了默认粒子数量。共享标签页/屏幕音频在手机浏览器上的可用性依赖浏览器能力；若只拿到画面不带音频，请改用麦克风。
+      </div>
+
+      <div class="controls">
+        <button id="startMic" class="primary" type="button">使用麦克风</button>
+        <button id="startDisplay" class="secondary" type="button">抓取标签页/屏幕音频</button>
+        <button id="stop" class="ghost" type="button">停止</button>
+      </div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="row-head">
+            <span>灵敏度</span>
+            <strong id="sensitivityValue">1.30x</strong>
+          </div>
+          <input id="sensitivity" type="range" min="0.5" max="3" step="0.05" value="1.3" />
+        </div>
+
+        <div class="row">
+          <div class="row-head">
+            <span>粒子数量</span>
+            <strong id="countValue">8000</strong>
+          </div>
+          <input id="particleCount" type="range" min="2500" max="14000" step="500" value="8000" />
+        </div>
+      </div>
+
+      <div class="meter-grid">
+        <div class="meter-card">
+          <div class="meter-label">总响度</div>
+          <div class="meter-track"><div id="meterLoudness" class="meter-fill"></div></div>
+        </div>
+        <div class="meter-card">
+          <div class="meter-label">低频</div>
+          <div class="meter-track"><div id="meterBass" class="meter-fill"></div></div>
+        </div>
+        <div class="meter-card">
+          <div class="meter-label">中频</div>
+          <div class="meter-track"><div id="meterMid" class="meter-fill"></div></div>
+        </div>
+        <div class="meter-card">
+          <div class="meter-label">高频</div>
+          <div class="meter-track"><div id="meterTreble" class="meter-fill"></div></div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="pill">当前输入：<strong id="sourceLabel">未连接</strong></div>
+        <div class="pill">音频状态：<strong id="audioState">idle</strong></div>
+        <div class="pill">渲染：<strong>Three.js Points</strong></div>
+      </div>
+
+      <div id="status" class="status">
+        点击上方按钮开始。要抓“正在播放的网页声音”，优先选“共享标签页/屏幕音频”。
+      </div>
+
+      <details class="tips-details">
+        <summary>运行提示</summary>
+        <div class="tips-content">
+          麦克风和屏幕采集通常需要 <code>HTTPS</code> 或 <code>localhost</code>。
+          想抓浏览器正在播放的声音时，优先在支持该能力的浏览器里共享一个标签页，并勾选“共享标签页音频 / Share tab audio”。
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <aside class="corner">
+    运行提示：麦克风和屏幕采集通常需要 <code>HTTPS</code> 或 <code>localhost</code>。
+    想抓浏览器正在播放的声音时，优先在 Chromium 系浏览器里共享一个标签页，并勾选“共享标签页音频”。
+  </aside>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.183.2/build/three.module.js';
+
+    const app = document.getElementById('app');
+    const hudEl = document.getElementById('hud');
+    const hudBodyEl = document.getElementById('hudBody');
+    const toggleHudBtn = document.getElementById('toggleHud');
+    const statusEl = document.getElementById('status');
+    const sourceLabelEl = document.getElementById('sourceLabel');
+    const sourceLabelQuickEl = document.getElementById('sourceLabelQuick');
+    const audioStateEl = document.getElementById('audioState');
+    const audioStateQuickEl = document.getElementById('audioStateQuick');
+    const sensitivityInput = document.getElementById('sensitivity');
+    const sensitivityValueEl = document.getElementById('sensitivityValue');
+    const particleCountInput = document.getElementById('particleCount');
+    const countValueEl = document.getElementById('countValue');
+    const startMicBtn = document.getElementById('startMic');
+    const startDisplayBtn = document.getElementById('startDisplay');
+    const stopBtn = document.getElementById('stop');
+
+    const compactQuery = window.matchMedia('(max-width: 768px)');
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+    const mobileUa = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    let isCompactViewport = compactQuery.matches;
+    let isProbablyMobile = isCompactViewport || isTouchDevice || mobileUa;
+    let hudCollapsed = isCompactViewport;
+
+    const meterEls = {
+      loudness: document.getElementById('meterLoudness'),
+      bass: document.getElementById('meterBass'),
+      mid: document.getElementById('meterMid'),
+      treble: document.getElementById('meterTreble'),
+    };
+
+    function syncHudState() {
+      isCompactViewport = compactQuery.matches;
+      isProbablyMobile = isCompactViewport || isTouchDevice || mobileUa;
+      if (!isCompactViewport) hudCollapsed = false;
+      hudEl.classList.toggle('compact', isCompactViewport && hudCollapsed);
+      toggleHudBtn.textContent = isCompactViewport && hudCollapsed ? '展开' : '收起';
+      toggleHudBtn.setAttribute('aria-expanded', String(!(isCompactViewport && hudCollapsed)));
+    }
+
+    toggleHudBtn.addEventListener('click', () => {
+      if (!compactQuery.matches) return;
+      hudCollapsed = !hudCollapsed;
+      syncHudState();
+    });
+
+    if (typeof compactQuery.addEventListener === 'function') {
+      compactQuery.addEventListener('change', () => {
+        syncHudState();
+        handleResize();
+      });
+    } else if (typeof compactQuery.addListener === 'function') {
+      compactQuery.addListener(() => {
+        syncHudState();
+        handleResize();
+      });
+    }
+
+    if (isProbablyMobile) {
+      const mobileDefaultCount = Math.min(Number(particleCountInput.value), 4500);
+      particleCountInput.value = String(mobileDefaultCount);
+      particleCountInput.max = '10000';
+      countValueEl.textContent = particleCountInput.value;
+    }
+
+    function getRenderPixelRatio() {
+      return Math.min(window.devicePixelRatio || 1, isProbablyMobile ? 1.5 : 2);
+    }
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(getRenderPixelRatio());
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    app.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0, 11);
+
+    const root = new THREE.Group();
+    scene.add(root);
+
+    scene.fog = new THREE.FogExp2(0x030712, 0.08);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambient);
+
+    const pointLight = new THREE.PointLight(0x7dd3fc, 1.5, 30, 2);
+    pointLight.position.set(4, 5, 7);
+    scene.add(pointLight);
+
+    const pointLight2 = new THREE.PointLight(0xc084fc, 1.2, 30, 2);
+    pointLight2.position.set(-5, -3, 6);
+    scene.add(pointLight2);
+
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(1.25, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0x8be9fd,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.15,
+      })
+    );
+    root.add(core);
+
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(1.8, 24, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0x93c5fd,
+        transparent: true,
+        opacity: 0.05,
+        side: THREE.BackSide,
+      })
+    );
+    root.add(halo);
+
+    let particleCount = Number(particleCountInput.value);
+    let particles;
+    let particleGeometry;
+    let particleMaterial;
+    let particlePositions;
+    let particleBasePositions;
+    let particleNoise;
+
+    function createParticles(count) {
+      if (particles) {
+        root.remove(particles);
+        particleGeometry.dispose();
+        particleMaterial.dispose();
+      }
+
+      particleCount = count;
+      const positions = new Float32Array(count * 3);
+      const basePositions = new Float32Array(count * 3);
+      const noise = new Float32Array(count * 4);
+      const colors = new Float32Array(count * 3);
+      const color = new THREE.Color();
+
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const i4 = i * 4;
+
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(THREE.MathUtils.randFloatSpread(2));
+        const radius = 1.8 + Math.pow(Math.random(), 1.6) * 4.8;
+
+        const x = radius * Math.sin(phi) * Math.cos(theta);
+        const y = radius * Math.cos(phi);
+        const z = radius * Math.sin(phi) * Math.sin(theta);
+
+        positions[i3] = basePositions[i3] = x;
+        positions[i3 + 1] = basePositions[i3 + 1] = y;
+        positions[i3 + 2] = basePositions[i3 + 2] = z;
+
+        noise[i4] = Math.random();
+        noise[i4 + 1] = Math.random();
+        noise[i4 + 2] = Math.random();
+        noise[i4 + 3] = Math.random() * Math.PI * 2;
+
+        color.setHSL(0.55 + Math.random() * 0.12, 0.95, 0.58 + Math.random() * 0.12);
+        colors[i3] = color.r;
+        colors[i3 + 1] = color.g;
+        colors[i3 + 2] = color.b;
+      }
+
+      particleGeometry = new THREE.BufferGeometry();
+      particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      particleGeometry.computeBoundingSphere();
+
+      particleMaterial = new THREE.PointsMaterial({
+        size: isProbablyMobile ? 0.08 : 0.09,
+        map: makeSprite(),
+        transparent: true,
+        depthWrite: false,
+        vertexColors: true,
+        blending: THREE.AdditiveBlending,
+        opacity: 0.95,
+        sizeAttenuation: true,
+      });
+
+      particles = new THREE.Points(particleGeometry, particleMaterial);
+      root.add(particles);
+
+      particlePositions = positions;
+      particleBasePositions = basePositions;
+      particleNoise = noise;
+    }
+
+    function makeSprite() {
+      const size = 128;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+      gradient.addColorStop(0, 'rgba(255,255,255,1)');
+      gradient.addColorStop(0.25, 'rgba(190,235,255,0.95)');
+      gradient.addColorStop(0.55, 'rgba(120,170,255,0.25)');
+      gradient.addColorStop(1, 'rgba(120,170,255,0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, size, size);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    }
+
+    createParticles(particleCount);
+    syncHudState();
+
+    const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+
+    function updatePointerFromEvent(clientX, clientY) {
+      pointer.tx = (clientX / window.innerWidth) * 2 - 1;
+      pointer.ty = (clientY / window.innerHeight) * 2 - 1;
+    }
+
+    window.addEventListener('pointermove', (event) => {
+      updatePointerFromEvent(event.clientX, event.clientY);
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (event) => {
+      const touch = event.touches && event.touches[0];
+      if (!touch) return;
+      updatePointerFromEvent(touch.clientX, touch.clientY);
+    }, { passive: true });
+
+    function handleResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(getRenderPixelRatio());
+    }
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => setTimeout(handleResize, 120));
+
+    particleCountInput.addEventListener('input', () => {
+      countValueEl.textContent = particleCountInput.value;
+      createParticles(Number(particleCountInput.value));
+    });
+
+    sensitivityInput.addEventListener('input', () => {
+      sensitivityValueEl.textContent = `${Number(sensitivityInput.value).toFixed(2)}x`;
+    });
+
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    let audioContext = null;
+    let analyser = null;
+    let sourceNode = null;
+    let silentOutput = null;
+    let currentStream = null;
+    let currentSourceType = '未连接';
+    let freqData = null;
+    let timeData = null;
+
+    const audioState = {
+      loudness: 0,
+      bass: 0,
+      mid: 0,
+      treble: 0,
+    };
+
+    function setStatus(message, kind = 'normal') {
+      statusEl.textContent = message;
+      statusEl.className = `status${kind === 'normal' ? '' : ` ${kind}`}`;
+    }
+
+    function updateMeta() {
+      sourceLabelEl.textContent = currentSourceType;
+      sourceLabelQuickEl.textContent = currentSourceType;
+      const stateText = analyser ? (audioContext ? audioContext.state : 'running') : 'idle';
+      audioStateEl.textContent = stateText;
+      audioStateQuickEl.textContent = stateText;
+    }
+
+    function stopCurrentStream() {
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch (_) {}
+        sourceNode = null;
+      }
+      if (analyser) {
+        try { analyser.disconnect(); } catch (_) {}
+        analyser = null;
+      }
+      if (currentStream) {
+        currentStream.getTracks().forEach((track) => track.stop());
+        currentStream = null;
+      }
+      freqData = null;
+      timeData = null;
+      currentSourceType = '未连接';
+      updateMeta();
+    }
+
+    async function ensureAudioContext(unlockForGesture = false) {
+      if (!AudioContextCtor) {
+        throw new Error('当前浏览器不支持 Web Audio API。');
+      }
+      if (!audioContext) {
+        audioContext = new AudioContextCtor({ latencyHint: 'interactive' });
+        silentOutput = audioContext.createGain();
+        silentOutput.gain.value = 0;
+        silentOutput.connect(audioContext.destination);
+      }
+
+      if (unlockForGesture) {
+        try {
+          const buffer = audioContext.createBuffer(1, 1, audioContext.sampleRate || 44100);
+          const unlockSource = audioContext.createBufferSource();
+          unlockSource.buffer = buffer;
+          unlockSource.connect(silentOutput);
+          unlockSource.start(0);
+          unlockSource.stop(audioContext.currentTime + 0.001);
+        } catch (_) {}
+      }
+
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+      updateMeta();
+      return audioContext;
+    }
+
+    function getMicConstraints() {
+      const supported = navigator.mediaDevices?.getSupportedConstraints?.() || {};
+      const audio = {};
+      if (supported.echoCancellation) audio.echoCancellation = { ideal: false };
+      if (supported.noiseSuppression) audio.noiseSuppression = { ideal: false };
+      if (supported.autoGainControl) audio.autoGainControl = { ideal: false };
+      if (supported.channelCount) audio.channelCount = { ideal: 1 };
+      if (supported.latency) audio.latency = { ideal: 0.02 };
+      return {
+        audio: Object.keys(audio).length ? audio : true,
+        video: false,
+      };
+    }
+
+    function buildDisplayConstraints(simple = false) {
+      if (simple) {
+        return { audio: true, video: true };
+      }
+      const audio = {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        suppressLocalAudioPlayback: false,
+      };
+      return {
+        video: { displaySurface: 'browser' },
+        audio,
+        selfBrowserSurface: 'include',
+        surfaceSwitching: 'include',
+        systemAudio: 'include',
+        monitorTypeSurfaces: 'include',
+      };
+    }
+
+    async function connectStream(stream, label) {
+      stopCurrentStream();
+      await ensureAudioContext(false);
+
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) {
+        stream.getTracks().forEach((track) => track.stop());
+        const mobileHint = isProbablyMobile
+          ? '当前手机浏览器只返回了画面，没有返回音频轨。请改用“使用麦克风”，或在支持标签页音频的桌面浏览器中共享标签页并勾选“共享音频”。'
+          : '没有拿到音频轨道。共享标签页时请确认勾选了“共享音频 / Share audio”。';
+        throw new Error(mobileHint);
+      }
+
+      currentStream = stream;
+      currentSourceType = label;
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = isProbablyMobile ? 512 : 1024;
+      analyser.minDecibels = -95;
+      analyser.maxDecibels = -10;
+      analyser.smoothingTimeConstant = isProbablyMobile ? 0.86 : 0.82;
+
+      sourceNode = audioContext.createMediaStreamSource(stream);
+      sourceNode.connect(analyser);
+      analyser.connect(silentOutput);
+
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      timeData = new Uint8Array(analyser.fftSize);
+
+      stream.getTracks().forEach((track) => {
+        track.addEventListener('ended', () => {
+          if (stream === currentStream) {
+            stopCurrentStream();
+            setStatus('输入源已结束。可以重新选择麦克风或重新共享音频。');
+          }
+        });
+      });
+
+      updateMeta();
+      setStatus(`已连接：${label}。现在粒子会随实时声音变化。`, 'ok');
+    }
+
+    function averageRange(data, startRatio, endRatio) {
+      const start = Math.max(0, Math.floor(data.length * startRatio));
+      const end = Math.min(data.length, Math.floor(data.length * endRatio));
+      if (end <= start) return 0;
+      let sum = 0;
+      for (let i = start; i < end; i++) sum += data[i];
+      return sum / (end - start) / 255;
+    }
+
+    function smooth(current, target, factor) {
+      return current + (target - current) * factor;
+    }
+
+    function updateAudioState() {
+      if (!analyser || !freqData || !timeData) {
+        audioState.loudness = smooth(audioState.loudness, 0, 0.06);
+        audioState.bass = smooth(audioState.bass, 0, 0.06);
+        audioState.mid = smooth(audioState.mid, 0, 0.06);
+        audioState.treble = smooth(audioState.treble, 0, 0.06);
+        return;
+      }
+
+      analyser.getByteFrequencyData(freqData);
+      analyser.getByteTimeDomainData(timeData);
+
+      let rms = 0;
+      for (let i = 0; i < timeData.length; i++) {
+        const v = (timeData[i] - 128) / 128;
+        rms += v * v;
+      }
+      rms = Math.sqrt(rms / timeData.length);
+
+      const sensitivity = Number(sensitivityInput.value);
+      const loudnessTarget = Math.min(1, rms * 3.2 * sensitivity);
+      const bassTarget = Math.min(1, averageRange(freqData, 0.0, 0.08) * 1.9 * sensitivity);
+      const midTarget = Math.min(1, averageRange(freqData, 0.08, 0.28) * 1.65 * sensitivity);
+      const trebleTarget = Math.min(1, averageRange(freqData, 0.28, 0.75) * 1.8 * sensitivity);
+
+      audioState.loudness = smooth(audioState.loudness, loudnessTarget, 0.22);
+      audioState.bass = smooth(audioState.bass, bassTarget, 0.16);
+      audioState.mid = smooth(audioState.mid, midTarget, 0.16);
+      audioState.treble = smooth(audioState.treble, trebleTarget, 0.16);
+    }
+
+    function updateMeters() {
+      meterEls.loudness.style.width = `${Math.round(audioState.loudness * 100)}%`;
+      meterEls.bass.style.width = `${Math.round(audioState.bass * 100)}%`;
+      meterEls.mid.style.width = `${Math.round(audioState.mid * 100)}%`;
+      meterEls.treble.style.width = `${Math.round(audioState.treble * 100)}%`;
+    }
+
+    const clock = new THREE.Clock();
+    const globalColor = new THREE.Color();
+    const bgColor = new THREE.Color();
+
+    function animateParticles(t) {
+      if (!particleGeometry) return;
+
+      const { loudness, bass, mid, treble } = audioState;
+      const mixA = 0.12 + loudness * 0.6;
+      const pulse = 1 + loudness * 0.85;
+      const twist = 0.16 + bass * 0.65 + mid * 0.18;
+      const flutter = 0.14 + treble * 0.42;
+
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        const i4 = i * 4;
+
+        const bx = particleBasePositions[i3];
+        const by = particleBasePositions[i3 + 1];
+        const bz = particleBasePositions[i3 + 2];
+        const seedA = particleNoise[i4];
+        const seedB = particleNoise[i4 + 1];
+        const seedC = particleNoise[i4 + 2];
+        const phase = particleNoise[i4 + 3];
+
+        const radius = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+        const bandMix = seedB < 0.33 ? bass : seedB < 0.66 ? mid : treble;
+        const wobble = Math.sin(t * (1.5 + seedA * 1.8) + phase + radius * 0.9) * (0.16 + bandMix * 0.26);
+        const radialBoost = 1 + pulse * (0.18 + seedA * 0.45) + bandMix * 0.45 + wobble * 0.18;
+
+        const angle = twist * (0.35 + seedC * 0.85) * Math.sin(t * (0.6 + seedA) + phase);
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        let x = bx * radialBoost;
+        let y = by * radialBoost;
+        let z = bz * radialBoost;
+
+        const rx = x * cos - z * sin;
+        const rz = x * sin + z * cos;
+        x = rx + Math.sin(t * (2.0 + seedB * 3.0) + phase) * treble * (0.18 + seedA * 0.24);
+        y = y + Math.cos(t * (1.7 + seedC * 2.6) + phase) * mid * (0.22 + seedB * 0.28);
+        z = rz + Math.sin(t * (1.3 + seedA * 2.1) + phase * 1.3) * bass * (0.16 + seedC * 0.3);
+
+        const norm = 1 / radius;
+        x += bx * norm * mixA * Math.sin(t * 2.2 + phase);
+        y += by * norm * mixA * Math.cos(t * 2.0 + phase);
+        z += bz * norm * mixA * Math.sin(t * 2.4 + phase * 1.2);
+
+        particlePositions[i3] = x;
+        particlePositions[i3 + 1] = y;
+        particlePositions[i3 + 2] = z;
+      }
+
+      particleGeometry.attributes.position.needsUpdate = true;
+      particleMaterial.size = (isProbablyMobile ? 0.06 : 0.07) + loudness * 0.16 + treble * 0.06;
+      particleMaterial.opacity = 0.6 + loudness * 0.36 + treble * 0.08;
+
+      const hue = (0.57 - bass * 0.18 + treble * 0.08 + Math.sin(t * 0.15) * 0.01 + 1) % 1;
+      globalColor.setHSL(hue, 0.96, 0.63 + loudness * 0.12);
+      particleMaterial.color.copy(globalColor);
+      core.material.color.copy(globalColor);
+      halo.material.color.copy(globalColor);
+
+      bgColor.setHSL((hue + 0.06) % 1, 0.55, 0.045 + loudness * 0.03);
+      renderer.setClearColor(bgColor, 1);
+      scene.fog.color.copy(bgColor);
+      pointLight.color.copy(globalColor);
+      pointLight2.color.setHSL((hue + 0.15) % 1, 0.8, 0.65);
+
+      particles.rotation.y += 0.0015 + bass * 0.014;
+      particles.rotation.x = Math.sin(t * 0.25) * 0.12 + mid * 0.32;
+      particles.rotation.z = Math.cos(t * 0.19) * 0.08 + treble * 0.28;
+
+      core.rotation.x += 0.003 + bass * 0.02;
+      core.rotation.y += 0.004 + treble * 0.03;
+      core.scale.setScalar(1 + loudness * 0.45 + bass * 0.12);
+      halo.scale.setScalar(1 + loudness * 0.7 + treble * 0.22);
+      halo.material.opacity = 0.03 + loudness * 0.09;
+    }
+
+    function animate() {
+      const t = clock.getElapsedTime();
+      updateAudioState();
+      updateMeters();
+      animateParticles(t);
+
+      pointer.x += (pointer.tx - pointer.x) * 0.04;
+      pointer.y += (pointer.ty - pointer.y) * 0.04;
+
+      camera.position.x = pointer.x * 1.35;
+      camera.position.y = -pointer.y * 0.85;
+      camera.lookAt(0, 0, 0);
+
+      root.rotation.y = Math.sin(t * 0.12) * 0.22;
+      root.rotation.x = Math.cos(t * 0.1) * 0.08;
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    requestAnimationFrame(animate);
+
+    function formatErrorMessage(error, kind = 'media') {
+      if (!error) return '未知错误';
+      if (typeof error === 'string') return error;
+      switch (error.name) {
+        case 'NotAllowedError':
+        case 'PermissionDeniedError':
+          return kind === 'display'
+            ? '用户拒绝了共享权限，或系统未允许屏幕/标签页采集。'
+            : '用户拒绝了麦克风权限。';
+        case 'NotFoundError':
+        case 'DevicesNotFoundError':
+          return kind === 'display'
+            ? '当前设备没有可共享的标签页/屏幕音频源。'
+            : '没有检测到可用的麦克风。';
+        case 'NotReadableError':
+        case 'TrackStartError':
+          return '浏览器拿到了权限，但系统没有把音频流交给页面。请关闭占用麦克风/录屏的其他应用后重试。';
+        case 'OverconstrainedError':
+        case 'ConstraintNotSatisfiedError':
+          return '当前设备不接受这组采集参数，已尝试降级；如果仍失败，请检查系统权限。';
+        case 'AbortError':
+          return '浏览器中断了这次采集请求，请重新尝试。';
+        case 'TypeError':
+          return kind === 'display'
+            ? '当前浏览器不接受这组屏幕采集参数，或根本不支持屏幕/标签页采集。'
+            : (error.message || '当前浏览器不支持这组麦克风采集参数。');
+        default:
+          return error.message || error.name || '未知错误';
+      }
+    }
+
+    async function requestMicrophoneStream() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('当前浏览器不支持麦克风采集（getUserMedia 不可用）。');
+      }
+      const attempts = [
+        getMicConstraints(),
+        { audio: true, video: false },
+      ];
+      let lastError = null;
+      for (const constraints of attempts) {
+        try {
+          return await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError || new Error('麦克风启动失败。');
+    }
+
+    async function requestDisplayStream() {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error('当前浏览器不支持屏幕/标签页采集（getDisplayMedia 不可用）。');
+      }
+      const attempts = [
+        buildDisplayConstraints(isProbablyMobile || !/Chrome|Chromium|Edg\//.test(navigator.userAgent)),
+        buildDisplayConstraints(true),
+      ];
+      let lastError = null;
+      for (const constraints of attempts) {
+        try {
+          return await navigator.mediaDevices.getDisplayMedia(constraints);
+        } catch (error) {
+          lastError = error;
+          if (error?.name === 'NotAllowedError' || error?.name === 'AbortError') break;
+        }
+      }
+      throw lastError || new Error('共享音频启动失败。');
+    }
+
+    async function startMicrophone() {
+      setStatus('正在请求麦克风权限…');
+      await ensureAudioContext(true);
+      const stream = await requestMicrophoneStream();
+      await connectStream(stream, '麦克风');
+    }
+
+    async function startDisplayCapture() {
+      setStatus('正在请求共享标签页/屏幕音频…');
+      await ensureAudioContext(true);
+      const stream = await requestDisplayStream();
+      await connectStream(stream, '标签页 / 屏幕共享音频');
+    }
+
+    function updateFeatureAvailability() {
+      const canUseMic = Boolean(navigator.mediaDevices?.getUserMedia);
+      const canUseDisplay = Boolean(navigator.mediaDevices?.getDisplayMedia);
+      startMicBtn.disabled = !canUseMic;
+      startDisplayBtn.disabled = !canUseDisplay;
+
+      if (!canUseMic) {
+        startMicBtn.title = '当前浏览器不支持 getUserMedia';
+      }
+      if (!canUseDisplay) {
+        startDisplayBtn.title = '当前浏览器不支持 getDisplayMedia';
+      } else if (isProbablyMobile) {
+        startDisplayBtn.title = '手机浏览器即使支持 getDisplayMedia，也不一定会返回音频轨';
+      }
+    }
+
+    function checkEnvironment() {
+      const secureEnough = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (!secureEnough) {
+        setStatus('当前环境不是 HTTPS/localhost，浏览器可能会拒绝麦克风或屏幕音频权限。建议通过 HTTPS 或 localhost 打开。');
+        return;
+      }
+      if (isProbablyMobile) {
+        setStatus('移动端已启用紧凑布局。麦克风采集已做移动端兼容处理；共享标签页/屏幕音频是否能返回音频轨，取决于手机浏览器本身。');
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().then(updateMeta).catch(() => {});
+      }
+    });
+
+    window.addEventListener('pageshow', () => {
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().then(updateMeta).catch(() => {});
+      }
+    });
+
+    startMicBtn.addEventListener('click', async () => {
+      try {
+        await startMicrophone();
+      } catch (error) {
+        console.error(error);
+        setStatus(`麦克风启动失败：${formatErrorMessage(error, 'mic')}`, 'error');
+      }
+    });
+
+    startDisplayBtn.addEventListener('click', async () => {
+      try {
+        await startDisplayCapture();
+      } catch (error) {
+        console.error(error);
+        setStatus(`共享音频启动失败：${formatErrorMessage(error, 'display')}`, 'error');
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopCurrentStream();
+      setStatus('已停止输入源。');
+    });
+
+    updateFeatureAvailability();
+    updateMeta();
+    checkEnvironment();
+    handleResize();
+  </script>
+</body>
+</html>
