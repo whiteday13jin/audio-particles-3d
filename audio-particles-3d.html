@@ -30,11 +30,9 @@
       overflow: hidden;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 35%),
-        radial-gradient(circle at 80% 25%, rgba(168, 85, 247, 0.18), transparent 28%),
-        radial-gradient(circle at 50% 80%, rgba(59, 130, 246, 0.12), transparent 32%),
-        #020617;
+      background: linear-gradient(145deg, #070611 0%, #120925 40%, #081433 72%, #03101f 100%);
+      background-size: 180% 180%;
+      transition: background 0.5s ease;
       color: var(--text);
       overscroll-behavior: none;
     }
@@ -682,6 +680,7 @@
     let particlePositions;
     let particleBasePositions;
     let particleNoise;
+    let particleSpiral;
 
     function createParticles(count) {
       if (particles) {
@@ -694,6 +693,7 @@
       const positions = new Float32Array(count * 3);
       const basePositions = new Float32Array(count * 3);
       const noise = new Float32Array(count * 4);
+      const spiral = new Float32Array(count * 4);
       const colors = new Float32Array(count * 3);
       const color = new THREE.Color();
 
@@ -701,13 +701,15 @@
         const i3 = i * 3;
         const i4 = i * 4;
 
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(THREE.MathUtils.randFloatSpread(2));
-        const radius = 1.8 + Math.pow(Math.random(), 1.6) * 4.8;
-
-        const x = radius * Math.sin(phi) * Math.cos(theta);
-        const y = radius * Math.cos(phi);
-        const z = radius * Math.sin(phi) * Math.sin(theta);
+        const heightRatio = i / Math.max(1, count - 1);
+        const yBase = (heightRatio - 0.5) * 9.2;
+        const swirlTurns = 9.0 + Math.random() * 5.5;
+        const theta = heightRatio * Math.PI * 2 * swirlTurns + Math.random() * 0.9;
+        const taper = THREE.MathUtils.lerp(0.32, 2.65, Math.pow(1 - heightRatio, 0.54));
+        const radius = taper * (0.68 + Math.random() * 0.48);
+        const x = radius * Math.cos(theta);
+        const y = yBase + THREE.MathUtils.randFloatSpread(0.18);
+        const z = radius * Math.sin(theta);
 
         positions[i3] = basePositions[i3] = x;
         positions[i3 + 1] = basePositions[i3 + 1] = y;
@@ -717,6 +719,10 @@
         noise[i4 + 1] = Math.random();
         noise[i4 + 2] = Math.random();
         noise[i4 + 3] = Math.random() * Math.PI * 2;
+        spiral[i4] = heightRatio;
+        spiral[i4 + 1] = swirlTurns;
+        spiral[i4 + 2] = taper;
+        spiral[i4 + 3] = theta;
 
         color.setHSL(0.55 + Math.random() * 0.12, 0.95, 0.58 + Math.random() * 0.12);
         colors[i3] = color.r;
@@ -746,6 +752,7 @@
       particlePositions = positions;
       particleBasePositions = basePositions;
       particleNoise = noise;
+      particleSpiral = spiral;
     }
 
     function makeSprite() {
@@ -1013,15 +1020,18 @@
     const clock = new THREE.Clock();
     const globalColor = new THREE.Color();
     const bgColor = new THREE.Color();
+    const bgColor2 = new THREE.Color();
+    const bgColor3 = new THREE.Color();
 
     function animateParticles(t) {
       if (!particleGeometry) return;
 
       const { loudness, bass, mid, treble } = audioState;
-      const mixA = 0.12 + loudness * 0.6;
-      const pulse = 1 + loudness * 0.85;
-      const twist = 0.16 + bass * 0.65 + mid * 0.18;
-      const flutter = 0.14 + treble * 0.42;
+      const mixA = 0.12 + loudness * 0.54;
+      const pulse = 1 + loudness * 1.05;
+      const twist = 0.52 + bass * 1.25 + mid * 0.34;
+      const flutter = 0.2 + treble * 0.5;
+      const funnelLean = mid * 0.52 + Math.sin(t * 0.38) * 0.08;
 
       for (let i = 0; i < particleCount; i++) {
         const i3 = i * 3;
@@ -1035,29 +1045,24 @@
         const seedC = particleNoise[i4 + 2];
         const phase = particleNoise[i4 + 3];
 
-        const radius = Math.sqrt(bx * bx + by * by + bz * bz) || 1;
+        const heightRatio = particleSpiral[i4];
+        const baseTurns = particleSpiral[i4 + 1];
+        const taper = particleSpiral[i4 + 2];
+        const phaseTheta = particleSpiral[i4 + 3];
         const bandMix = seedB < 0.33 ? bass : seedB < 0.66 ? mid : treble;
-        const wobble = Math.sin(t * (1.5 + seedA * 1.8) + phase + radius * 0.9) * (0.16 + bandMix * 0.26);
-        const radialBoost = 1 + pulse * (0.18 + seedA * 0.45) + bandMix * 0.45 + wobble * 0.18;
+        const spin = t * (0.85 + baseTurns * 0.035 + bass * 1.2) + phaseTheta + phase;
+        const swirlWave = Math.sin(t * (1.1 + seedA * 1.8) + phase + heightRatio * 10.0) * (0.1 + bandMix * 0.25);
+        const radial = taper * (0.65 + pulse * (0.08 + seedA * 0.2) + bandMix * 0.42 + swirlWave);
+        const corkscrew = Math.sin(t * (2.1 + seedC * 2.4) + phase) * flutter * (0.16 + seedB * 0.24);
+        const theta = spin * twist + seedA * 0.75;
 
-        const angle = twist * (0.35 + seedC * 0.85) * Math.sin(t * (0.6 + seedA) + phase);
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
+        let x = Math.cos(theta) * radial + Math.cos(spin * 0.55 + phase) * corkscrew;
+        let z = Math.sin(theta) * radial + Math.sin(spin * 0.48 + phase * 1.2) * corkscrew;
+        let y = by + Math.sin(t * (1.3 + seedB * 1.9) + phaseTheta) * (0.1 + treble * 0.24);
 
-        let x = bx * radialBoost;
-        let y = by * radialBoost;
-        let z = bz * radialBoost;
-
-        const rx = x * cos - z * sin;
-        const rz = x * sin + z * cos;
-        x = rx + Math.sin(t * (2.0 + seedB * 3.0) + phase) * treble * (0.18 + seedA * 0.24);
-        y = y + Math.cos(t * (1.7 + seedC * 2.6) + phase) * mid * (0.22 + seedB * 0.28);
-        z = rz + Math.sin(t * (1.3 + seedA * 2.1) + phase * 1.3) * bass * (0.16 + seedC * 0.3);
-
-        const norm = 1 / radius;
-        x += bx * norm * mixA * Math.sin(t * 2.2 + phase);
-        y += by * norm * mixA * Math.cos(t * 2.0 + phase);
-        z += bz * norm * mixA * Math.sin(t * 2.4 + phase * 1.2);
+        x += (heightRatio - 0.5) * funnelLean;
+        z += Math.sin(t * 0.74 + seedC * 6.2) * (0.08 + loudness * 0.2);
+        y += mixA * Math.cos(t * 1.7 + phase + heightRatio * 8.0);
 
         particlePositions[i3] = x;
         particlePositions[i3 + 1] = y;
@@ -1068,13 +1073,18 @@
       particleMaterial.size = (isProbablyMobile ? 0.06 : 0.07) + loudness * 0.16 + treble * 0.06;
       particleMaterial.opacity = 0.6 + loudness * 0.36 + treble * 0.08;
 
-      const hue = (0.57 - bass * 0.18 + treble * 0.08 + Math.sin(t * 0.15) * 0.01 + 1) % 1;
+      const hue = (0.73 - bass * 0.12 + treble * 0.11 + Math.sin(t * 0.16) * 0.02 + 1) % 1;
       globalColor.setHSL(hue, 0.96, 0.63 + loudness * 0.12);
       particleMaterial.color.copy(globalColor);
       core.material.color.copy(globalColor);
       halo.material.color.copy(globalColor);
 
-      bgColor.setHSL((hue + 0.06) % 1, 0.55, 0.045 + loudness * 0.03);
+      bgColor.setHSL((hue + 0.08) % 1, 0.72, 0.08 + loudness * 0.04);
+      bgColor2.setHSL((hue + 0.23) % 1, 0.82, 0.11 + bass * 0.06);
+      bgColor3.setHSL((hue + 0.47) % 1, 0.76, 0.06 + treble * 0.04);
+      document.body.style.background = `radial-gradient(circle at 18% 18%, ${bgColor2.getStyle()} 0%, transparent 44%),
+        radial-gradient(circle at 82% 24%, ${bgColor.getStyle()} 0%, transparent 42%),
+        linear-gradient(140deg, ${bgColor3.getStyle()} 0%, ${bgColor.getStyle()} 55%, ${bgColor2.getStyle()} 100%)`;
       renderer.setClearColor(bgColor, 1);
       scene.fog.color.copy(bgColor);
       pointLight.color.copy(globalColor);
